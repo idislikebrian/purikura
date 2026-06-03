@@ -1,0 +1,18 @@
+{
+  "name": "@purikura/state-machine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@purikura/shared": "workspace:*",
+    "xstate": "^5.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
