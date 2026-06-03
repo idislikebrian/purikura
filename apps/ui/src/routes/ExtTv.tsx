@@ -4,7 +4,13 @@ export function ExtTv() {
   useCoordinator('ext-tv');
   const state = useStore((s) => s.state);
 
-  if (!state) return null;
+  if (!state) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a', color: 'var(--text-dimmer)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+        connecting...
+      </div>
+    );
+  }
 
   const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   const totalWaiting = state.queue.length;

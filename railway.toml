@@ -1,0 +1,8 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pnpm install --frozen-lockfile && pnpm --filter @purikura/coordinator build"
+
+[deploy]
+startCommand = "node apps/coordinator/dist/index.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
