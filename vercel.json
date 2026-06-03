@@ -2,5 +2,6 @@
   "buildCommand": "pnpm --filter @purikura/ui build",
   "outputDirectory": "apps/ui/dist",
   "installCommand": "pnpm install --frozen-lockfile",
-  "framework": null
+  "framework": null,
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
