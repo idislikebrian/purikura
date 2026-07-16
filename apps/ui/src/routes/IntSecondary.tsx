@@ -2,14 +2,18 @@ import { useEffect, useState } from 'react';
 import { Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText } from 'react-konva';
 import { useCoordinator, useStore } from '../lib/coordinator-client.ts';
 import { ScreenShell } from '../components/ScreenShell.tsx';
+import { EDITOR_CANVAS_HEIGHT, EDITOR_CANVAS_WIDTH } from '@purikura/shared';
 
 export function IntSecondary() {
   useCoordinator('int-secondary');
   const state = useStore((s) => s.state);
-  const canvasState = useStore((s) => s.canvasState);
+  const editorSnapshot = useStore((s) => s.editorSnapshot);
 
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const photoBlob = state?.activeSession?.photoBlob ?? null;
+  const items = editorSnapshot && editorSnapshot.sessionId === state?.activeSession?.id
+    ? editorSnapshot.document.items
+    : [];
 
   useEffect(() => {
     if (!photoBlob) { setBgImage(null); return; }
@@ -36,19 +40,18 @@ export function IntSecondary() {
           <span style={{ color: 'var(--accent-cool)' }}>⇄ live</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
-          <Stage width={400} height={500} listening={false}>
+          <Stage width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} listening={false}>
             <Layer>
               {bgImage
-                ? <KonvaImage image={bgImage} width={400} height={500} />
-                : <Rect width={400} height={500} fill="#1a1a2e" />
+                ? <KonvaImage image={bgImage} width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} />
+                : <Rect width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} fill="#1a1a2e" />
               }
             </Layer>
             <Layer>
-              {canvasState.stickers.map((s) => (
-                <KonvaText key={s.id} text={s.emoji} x={s.x} y={s.y} fontSize={40} />
-              ))}
-              {canvasState.texts.map((t) => (
-                <KonvaText key={t.id} text={t.content} x={t.x} y={t.y} fontSize={22} fill={t.color} fontStyle="bold" />
+              {items.map((item) => item.type === 'sticker' ? (
+                <KonvaText key={item.id} text={item.emoji} x={item.x} y={item.y} rotation={item.rotation} scaleX={item.scale} scaleY={item.scale} fontSize={40} />
+              ) : (
+                <KonvaText key={item.id} text={item.content} x={item.x} y={item.y} rotation={item.rotation} scaleX={item.scale} scaleY={item.scale} fontSize={22} fill={item.color} fontStyle="bold" />
               ))}
             </Layer>
           </Stage>

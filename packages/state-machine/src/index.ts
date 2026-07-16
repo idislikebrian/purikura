@@ -13,13 +13,12 @@
  *   manip-intro → manipulate → takeaway-info → completed → idle
  */
 
-import { setup, assign, fromCallback } from 'xstate';
-import type { UserSession, CanvasState } from '@purikura/shared';
+import { setup, assign } from 'xstate';
+import type { UserSession } from '@purikura/shared';
 
 export interface SessionContext {
   activeSession: UserSession | null;
   redoUsed: boolean;
-  canvasState: CanvasState;
   manipulationTimeRemainingMs: number;
 }
 
@@ -36,16 +35,8 @@ export type SessionEvent =
   | { type: 'MANIP_DONE' }
   | { type: 'EXIT' }
   | { type: 'TIMEOUT' }
-  | { type: 'CANVAS_UPDATE'; payload: CanvasState }
   | { type: 'ADMIN_SUSPEND' }
   | { type: 'ADMIN_RESUME' };
-
-const EMPTY_CANVAS: CanvasState = {
-  stickers: [],
-  texts: [],
-  filter: null,
-  strokes: [],
-};
 
 export const sessionMachine = setup({
   types: {
@@ -59,24 +50,16 @@ export const sessionMachine = setup({
         return { ...event.session, enteredAt: Date.now() };
       },
       redoUsed: false,
-      canvasState: EMPTY_CANVAS,
     }),
     clearSession: assign({
       activeSession: null,
       redoUsed: false,
-      canvasState: EMPTY_CANVAS,
     }),
     markRedoUsed: assign({ redoUsed: true }),
     storePhoto: assign({
       activeSession: ({ context, event }) => {
         if (event.type !== 'PHOTO_CAPTURED' || !context.activeSession) return context.activeSession;
         return { ...context.activeSession, photoBlob: event.photoBlob };
-      },
-    }),
-    updateCanvas: assign({
-      canvasState: ({ event }) => {
-        if (event.type !== 'CANVAS_UPDATE') return EMPTY_CANVAS;
-        return event.payload;
       },
     }),
   },
@@ -96,7 +79,6 @@ export const sessionMachine = setup({
   context: {
     activeSession: null,
     redoUsed: false,
-    canvasState: EMPTY_CANVAS,
     manipulationTimeRemainingMs: 0,
   },
   on: {
@@ -146,7 +128,6 @@ export const sessionMachine = setup({
     manipulate: {
       after: { MANIP_DURATION_MULTI: { target: 'takeawayInfo' } },
       on: {
-        CANVAS_UPDATE: { actions: 'updateCanvas' },
         MANIP_DONE: { target: 'takeawayInfo' },
       },
     },

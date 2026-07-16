@@ -20,6 +20,7 @@ import type { WebSocket } from 'ws';
 
 import { sessionMachine } from '@purikura/state-machine';
 import type { HardwareAdapter } from '@purikura/hardware-adapter';
+import { EditorState } from './editor-state.js';
 import type {
   Surface,
   UserSession,
@@ -65,7 +66,11 @@ export class Coordinator {
   private printerOnline = true;
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private hardware: HardwareAdapter, private demoMode = false) {
+  constructor(
+    private hardware: HardwareAdapter,
+    private demoMode = false,
+    private editor = new EditorState(),
+  ) {
     const machine = demoMode
       ? sessionMachine.provide({ delays: DEMO_DELAYS })
       : sessionMachine;
@@ -77,6 +82,8 @@ export class Coordinator {
       const phaseName = typeof snapshot.value === 'string' ? snapshot.value : 'idle';
       const phase = PHASE_MAP[phaseName] ?? 'idle';
       const session = snapshot.context.activeSession;
+      const previousEditorSessionId = this.editor.getSnapshot()?.sessionId ?? null;
+      const editorSnapshot = this.editor.syncSession(session?.id ?? null);
 
       // When the machine returns to idle, see if there's someone waiting
       if (phase === 'idle' && this.queue.length > 0 && this.serviceMode === 'running') {
@@ -88,6 +95,12 @@ export class Coordinator {
       // Push the new state to all surfaces
       this.broadcast({ type: 'phase-change', phase, sessionId: session?.id ?? '' });
       this.broadcastState();
+      if (editorSnapshot && previousEditorSessionId !== editorSnapshot.sessionId) {
+        this.broadcastToSurfaces(
+          ['int-primary', 'int-secondary'],
+          { type: 'editor-snapshot', snapshot: editorSnapshot },
+        );
+      }
     });
 
     // Hardware → machine
@@ -110,6 +123,11 @@ export class Coordinator {
     this.actor.start();
   }
 
+  stop() {
+    this.stopCaptureCountdown();
+    this.actor.stop();
+  }
+
   // ============================================================================
   // Client management
   // ============================================================================
@@ -118,6 +136,12 @@ export class Coordinator {
     this.clients.set(ws, surface);
     // Send current state immediately so the new client renders the right thing
     this.sendToClient(ws, { event: { type: 'state-update', state: this.buildSystemState() }, timestamp: Date.now() });
+    if (surface === 'int-primary' || surface === 'int-secondary') {
+      const snapshot = this.editor.getSnapshot();
+      if (snapshot) {
+        this.sendToClient(ws, { event: { type: 'editor-snapshot', snapshot }, timestamp: Date.now() });
+      }
+    }
   }
 
   detachClient(ws: WebSocket) {
@@ -186,15 +210,27 @@ export class Coordinator {
         this.actor.send({ type: 'REDO' });
         break;
 
-      case 'canvas-update':
-        this.actor.send({ type: 'CANVAS_UPDATE', payload: command.payload });
-        // Forward to OTHER internal screen (mirror behavior)
+      case 'editor-add-sticker':
+      case 'editor-add-text':
+      case 'editor-select-item':
+      case 'editor-delete-item': {
+        const snapshot = this.actor.getSnapshot();
+        const result = this.editor.apply(command, {
+          activeSessionId: snapshot.context.activeSession?.id ?? null,
+          phase: this.getCurrentPhase(),
+          surface,
+        });
+        if (!result.accepted) {
+          console.warn(`[coord] rejected ${command.type}: ${result.reason}`);
+          this.broadcastToSurfaces([surface], { type: 'error', message: result.reason });
+          break;
+        }
         this.broadcastToSurfaces(
           ['int-primary', 'int-secondary'],
-          { type: 'canvas-sync', payload: command.payload },
-          surface
+          { type: 'editor-snapshot', snapshot: result.snapshot },
         );
         break;
+      }
 
       case 'manip-done':
         this.actor.send({ type: 'MANIP_DONE' });
@@ -294,11 +330,10 @@ export class Coordinator {
 
   private buildSystemState(): SystemState {
     const snapshot = this.actor.getSnapshot();
-    const phaseName = typeof snapshot.value === 'string' ? snapshot.value : 'idle';
     return {
       serviceMode: this.serviceMode,
       activeSession: snapshot.context.activeSession,
-      phase: PHASE_MAP[phaseName] ?? 'idle',
+      phase: this.getCurrentPhase(),
       queue: [...this.queue],
       recentSessions: [...this.recentSessions],
       printQueue: [...this.printQueue],
@@ -306,6 +341,12 @@ export class Coordinator {
       printerOnline: this.printerOnline,
       estimatedWaitMs: this.queue.length * AVG_SESSION_MS,
     };
+  }
+
+  private getCurrentPhase(): Phase {
+    const value = this.actor.getSnapshot().value;
+    const phaseName = typeof value === 'string' ? value : 'idle';
+    return PHASE_MAP[phaseName] ?? 'idle';
   }
 
   private broadcastState() {

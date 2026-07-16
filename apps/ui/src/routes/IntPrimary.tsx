@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText } from 'react-konva';
-import type { KonvaEventObject } from 'konva/lib/Node';
 import { useCoordinator, useStore, COORDINATOR_HTTP_URL } from '../lib/coordinator-client.ts';
 import { ScreenShell } from '../components/ScreenShell.tsx';
-import type { CanvasState, Command } from '@purikura/shared';
+import {
+  EDITOR_CANVAS_HEIGHT,
+  EDITOR_CANVAS_WIDTH,
+  type Command,
+} from '@purikura/shared';
 
 // Phases where the camera should be active
 const CAMERA_PHASES = new Set([
   'welcome', 'photo-prep', 'photo-capture', 'photo-review',
   'manip-intro', 'manipulate', 'takeaway-info', 'completed',
 ]);
-
-const EMPTY_CANVAS: CanvasState = { stickers: [], texts: [], filter: null, strokes: [] };
 
 export function IntPrimary() {
   const { send } = useCoordinator('int-primary');
@@ -99,7 +100,12 @@ export function IntPrimary() {
     case 'manipulate':
       return (
         <ScreenShell>
-          <Manipulate capturedUrl={capturedUrl} onDone={() => send({ type: 'manip-done' })} send={send} />
+          <Manipulate
+            photoBlob={session.photoBlob ?? null}
+            sessionId={session.id}
+            onDone={() => send({ type: 'manip-done' })}
+            send={send}
+          />
         </ScreenShell>
       );
     case 'takeaway-info':
@@ -285,47 +291,50 @@ function ManipIntro() {
 
 const STICKER_OPTIONS = ['⭐', '❤️', '✨', '🌙', '🦋', '🌸', '💫', '🎀'];
 
-function Manipulate({ capturedUrl, onDone, send }: { capturedUrl: string | null; onDone: () => void; send: (cmd: Command) => void }) {
-  const [items, setItems] = useState<CanvasState>(EMPTY_CANVAS);
+function Manipulate({ photoBlob, sessionId, onDone, send }: { photoBlob: string | null; sessionId: string; onDone: () => void; send: (cmd: Command) => void }) {
+  const editorSnapshot = useStore((s) => s.editorSnapshot);
   const [activeTool, setActiveTool] = useState<'stickers' | 'text'>('stickers');
   const [textInput, setTextInput] = useState('');
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  const items = editorSnapshot?.sessionId === sessionId ? editorSnapshot.document.items : [];
+  const selectedItemId = editorSnapshot?.sessionId === sessionId ? editorSnapshot.selectedItemId : null;
 
   useEffect(() => {
-    if (!capturedUrl) return;
+    if (!photoBlob) { setBgImage(null); return; }
     const img = new window.Image();
-    img.src = capturedUrl;
+    img.src = photoBlob;
     img.onload = () => setBgImage(img);
-  }, [capturedUrl]);
-
-  const dispatch = (next: CanvasState) => {
-    setItems(next);
-    send({ type: 'canvas-update', payload: next });
-  };
+  }, [photoBlob]);
 
   const addSticker = (emoji: string) => {
-    dispatch({
-      ...items,
-      stickers: [...items.stickers, { id: crypto.randomUUID(), emoji, x: 180, y: 230, rotation: 0, scale: 1 }],
+    send({
+      type: 'editor-add-sticker',
+      sessionId,
+      itemId: crypto.randomUUID(),
+      emoji,
+      x: 180,
+      y: 230,
     });
   };
 
   const addText = () => {
     const content = textInput.trim();
     if (!content) return;
-    dispatch({
-      ...items,
-      texts: [...items.texts, { id: crypto.randomUUID(), content, x: 160, y: 230, rotation: 0, color: '#ffffff' }],
+    send({
+      type: 'editor-add-text',
+      sessionId,
+      itemId: crypto.randomUUID(),
+      content,
+      x: 160,
+      y: 230,
+      color: '#ffffff',
     });
     setTextInput('');
   };
 
-  const moveSticker = (id: string, x: number, y: number) => {
-    dispatch({ ...items, stickers: items.stickers.map((s) => (s.id === id ? { ...s, x, y } : s)) });
-  };
-
-  const moveText = (id: string, x: number, y: number) => {
-    dispatch({ ...items, texts: items.texts.map((t) => (t.id === id ? { ...t, x, y } : t)) });
+  const selectItem = (itemId: string | null) => send({ type: 'editor-select-item', sessionId, itemId });
+  const deleteSelected = () => {
+    if (selectedItemId) send({ type: 'editor-delete-item', sessionId, itemId: selectedItemId });
   };
 
   return (
@@ -336,37 +345,18 @@ function Manipulate({ capturedUrl, onDone, send }: { capturedUrl: string | null;
 
       {/* Konva stage */}
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: '0 0 auto' }}>
-        <Stage width={400} height={500}>
+        <Stage width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT}>
           <Layer>
             {bgImage
-              ? <KonvaImage image={bgImage} width={400} height={500} />
-              : <Rect width={400} height={500} fill="#1a1a2e" />
+              ? <KonvaImage image={bgImage} width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} onClick={() => selectItem(null)} onTap={() => selectItem(null)} />
+              : <Rect width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} fill="#1a1a2e" onClick={() => selectItem(null)} onTap={() => selectItem(null)} />
             }
           </Layer>
           <Layer>
-            {items.stickers.map((s) => (
-              <KonvaText
-                key={s.id}
-                text={s.emoji}
-                x={s.x}
-                y={s.y}
-                fontSize={40}
-                draggable
-                onDragEnd={(e: KonvaEventObject<DragEvent>) => moveSticker(s.id, e.target.x(), e.target.y())}
-              />
-            ))}
-            {items.texts.map((t) => (
-              <KonvaText
-                key={t.id}
-                text={t.content}
-                x={t.x}
-                y={t.y}
-                fontSize={22}
-                fill={t.color}
-                fontStyle="bold"
-                draggable
-                onDragEnd={(e: KonvaEventObject<DragEvent>) => moveText(t.id, e.target.x(), e.target.y())}
-              />
+            {items.map((item) => item.type === 'sticker' ? (
+              <KonvaText key={item.id} text={item.emoji} x={item.x} y={item.y} rotation={item.rotation} scaleX={item.scale} scaleY={item.scale} fontSize={40} onClick={() => selectItem(item.id)} onTap={() => selectItem(item.id)} />
+            ) : (
+              <KonvaText key={item.id} text={item.content} x={item.x} y={item.y} rotation={item.rotation} scaleX={item.scale} scaleY={item.scale} fontSize={22} fill={item.color} fontStyle="bold" onClick={() => selectItem(item.id)} onTap={() => selectItem(item.id)} />
             ))}
           </Layer>
         </Stage>
@@ -429,6 +419,13 @@ function Manipulate({ capturedUrl, onDone, send }: { capturedUrl: string | null;
       </div>
 
       <div style={{ padding: '0 16px 16px' }}>
+        <button
+          onClick={deleteSelected}
+          disabled={!selectedItemId}
+          style={{ width: '100%', padding: 10, marginBottom: 8, background: 'var(--surface-2)', color: selectedItemId ? 'var(--accent-warm)' : 'var(--text-dimmer)', border: '1px solid var(--line)', fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase', cursor: selectedItemId ? 'pointer' : 'not-allowed', opacity: selectedItemId ? 1 : 0.5 }}
+        >
+          Delete selected
+        </button>
         <button
           onClick={onDone}
           style={{ width: '100%', padding: 12, background: 'var(--accent-good)', color: '#000', border: 'none', fontFamily: 'var(--display)', fontWeight: 600, fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}

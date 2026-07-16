@@ -80,6 +80,49 @@ export interface SystemState {
 }
 
 // ============================================================================
+// Editor document - canonical coordinator-owned state for the 4:5 canvas
+// ============================================================================
+
+export const EDITOR_CANVAS_WIDTH = 400;
+export const EDITOR_CANVAS_HEIGHT = 500;
+
+export interface StickerItem {
+  type: 'sticker';
+  id: string;
+  emoji: string;
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+}
+
+export interface TextItem {
+  type: 'text';
+  id: string;
+  content: string;
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+  color: string;
+}
+
+export type EditorItem = StickerItem | TextItem;
+
+export interface EditorDocument {
+  width: typeof EDITOR_CANVAS_WIDTH;
+  height: typeof EDITOR_CANVAS_HEIGHT;
+  items: EditorItem[]; // array order is the canonical z-order
+}
+
+export interface EditorSnapshot {
+  sessionId: string;
+  revision: number;
+  document: EditorDocument;
+  selectedItemId: string | null;
+}
+
+// ============================================================================
 // Commands — what UIs send TO the coordinator
 // ============================================================================
 
@@ -92,20 +135,16 @@ export type Command =
   | { type: 'photo-accept' }
   | { type: 'photo-redo' }
   | { type: 'manip-tool-change'; tool: ManipTool }
-  | { type: 'canvas-update'; payload: CanvasState }  // synced between int-1 and int-2
+  | { type: 'editor-add-sticker'; sessionId: string; itemId: string; emoji: string; x: number; y: number }
+  | { type: 'editor-add-text'; sessionId: string; itemId: string; content: string; x: number; y: number; color: string }
+  | { type: 'editor-select-item'; sessionId: string; itemId: string | null }
+  | { type: 'editor-delete-item'; sessionId: string; itemId: string }
   | { type: 'manip-done' }
   | { type: 'exit-booth' }                 // int: user is leaving
   | { type: 'admin-suspend' }
   | { type: 'admin-resume' };
 
 export type ManipTool = 'stickers' | 'filters' | 'text' | 'draw';
-
-export interface CanvasState {
-  stickers: Array<{ id: string; emoji: string; x: number; y: number; rotation: number; scale: number }>;
-  texts: Array<{ id: string; content: string; x: number; y: number; rotation: number; color: string }>;
-  filter: string | null;
-  strokes: Array<{ id: string; points: number[]; color: string; width: number }>;
-}
 
 // ============================================================================
 // Events — what the coordinator BROADCASTS to all UIs
@@ -117,7 +156,7 @@ export type Event =
   | { type: 'session-registered'; session: UserSession }
   | { type: 'session-completed'; session: UserSession }
   | { type: 'print-status-change'; job: PrintJob }
-  | { type: 'canvas-sync'; payload: CanvasState }      // for cross-screen mirroring
+  | { type: 'editor-snapshot'; snapshot: EditorSnapshot }
   | { type: 'countdown-tick'; remaining: number; phase: Phase }
   | { type: 'error'; message: string };
 

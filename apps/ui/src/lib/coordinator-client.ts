@@ -8,41 +8,37 @@
 
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
+import { reconcileEditorSnapshot, reconcileSystemState } from './coordinator-store.ts';
 import type {
   Surface,
   SystemState,
   Command,
   WSMessageOutbound,
   WSMessageInbound,
-  CanvasState,
+  EditorSnapshot,
 } from '@purikura/shared';
-
-const EMPTY_CANVAS: CanvasState = {
-  stickers: [],
-  texts: [],
-  filter: null,
-  strokes: [],
-};
 
 interface StoreState {
   connected: boolean;
   state: SystemState | null;
-  canvasState: CanvasState;
+  editorSnapshot: EditorSnapshot | null;
   countdownRemaining: number | null;
   setConnected: (v: boolean) => void;
   setState: (s: SystemState) => void;
-  setCanvasState: (s: CanvasState) => void;
+  setEditorSnapshot: (s: EditorSnapshot) => void;
   setCountdown: (n: number | null) => void;
 }
 
 export const useStore = create<StoreState>((set) => ({
   connected: false,
   state: null,
-  canvasState: EMPTY_CANVAS,
+  editorSnapshot: null,
   countdownRemaining: null,
   setConnected: (v) => set({ connected: v }),
-  setState: (s) => set({ state: s }),
-  setCanvasState: (s) => set({ canvasState: s }),
+  setState: (s) => set((current) => reconcileSystemState(current, s)),
+  setEditorSnapshot: (snapshot) => set((current) => ({
+    editorSnapshot: reconcileEditorSnapshot(current, snapshot),
+  })),
   setCountdown: (n) => set({ countdownRemaining: n }),
 }));
 
@@ -80,8 +76,8 @@ export function useCoordinator(surface: Surface): { send: Sender } {
             case 'state-update':
               useStore.getState().setState(event.state);
               break;
-            case 'canvas-sync':
-              useStore.getState().setCanvasState(event.payload);
+            case 'editor-snapshot':
+              useStore.getState().setEditorSnapshot(event.snapshot);
               break;
             case 'countdown-tick':
               useStore.getState().setCountdown(event.remaining);
