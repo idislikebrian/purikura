@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { EditorSnapshot, SystemState, UserSession } from '@purikura/shared';
 import { reconcileEditorSnapshot, reconcileSystemState } from './coordinator-store.js';
 
@@ -72,4 +73,17 @@ describe('coordinator client snapshot reconciliation', () => {
     assert.equal(reconciled.editorSnapshot, null);
     assert.equal(reconciled.state?.activeSession, null);
   });
+});
+
+test('MVP editor sources contain no text editor command or controls', () => {
+  const primarySource = readFileSync(new URL('../routes/IntPrimary.tsx', import.meta.url), 'utf8');
+  const secondarySource = readFileSync(new URL('../routes/IntSecondary.tsx', import.meta.url), 'utf8');
+  const sharedSource = readFileSync(new URL('../../../../packages/shared/src/index.ts', import.meta.url), 'utf8');
+
+  for (const source of [primarySource, secondarySource, sharedSource]) {
+    assert.doesNotMatch(source, /editor-add-text/);
+    assert.doesNotMatch(source, /type:\s*['"]text['"]/);
+  }
+  assert.doesNotMatch(primarySource, /textInput|addText|type something/i);
+  assert.doesNotMatch(secondarySource, /item\.content/);
 });

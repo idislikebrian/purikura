@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText } from 'react-konva';
 import { useCoordinator, useStore, COORDINATOR_HTTP_URL } from '../lib/coordinator-client.ts';
 import { ScreenShell } from '../components/ScreenShell.tsx';
-import {
-  EDITOR_CANVAS_HEIGHT,
-  EDITOR_CANVAS_WIDTH,
-  type Command,
-} from '@purikura/shared';
+import type { Command } from '@purikura/shared';
 
 // Phases where the camera should be active
 const CAMERA_PHASES = new Set([
@@ -101,7 +96,6 @@ export function IntPrimary() {
       return (
         <ScreenShell>
           <Manipulate
-            photoBlob={session.photoBlob ?? null}
             sessionId={session.id}
             onDone={() => send({ type: 'manip-done' })}
             send={send}
@@ -286,25 +280,18 @@ function ManipIntro() {
 }
 
 // ============================================================================
-// Canvas manipulation
+// Emoji controller
 // ============================================================================
 
 const STICKER_OPTIONS = ['⭐', '❤️', '✨', '🌙', '🦋', '🌸', '💫', '🎀'];
 
-function Manipulate({ photoBlob, sessionId, onDone, send }: { photoBlob: string | null; sessionId: string; onDone: () => void; send: (cmd: Command) => void }) {
+function Manipulate({ sessionId, onDone, send }: { sessionId: string; onDone: () => void; send: (cmd: Command) => void }) {
+  const connected = useStore((s) => s.connected);
   const editorSnapshot = useStore((s) => s.editorSnapshot);
-  const [activeTool, setActiveTool] = useState<'stickers' | 'text'>('stickers');
-  const [textInput, setTextInput] = useState('');
-  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
-  const items = editorSnapshot?.sessionId === sessionId ? editorSnapshot.document.items : [];
-  const selectedItemId = editorSnapshot?.sessionId === sessionId ? editorSnapshot.selectedItemId : null;
-
-  useEffect(() => {
-    if (!photoBlob) { setBgImage(null); return; }
-    const img = new window.Image();
-    img.src = photoBlob;
-    img.onload = () => setBgImage(img);
-  }, [photoBlob]);
+  const isSynchronized = editorSnapshot?.sessionId === sessionId;
+  const selectedItem = isSynchronized
+    ? editorSnapshot.document.items.find((item) => item.id === editorSnapshot.selectedItemId) ?? null
+    : null;
 
   const addSticker = (emoji: string) => {
     send({
@@ -317,112 +304,55 @@ function Manipulate({ photoBlob, sessionId, onDone, send }: { photoBlob: string 
     });
   };
 
-  const addText = () => {
-    const content = textInput.trim();
-    if (!content) return;
-    send({
-      type: 'editor-add-text',
-      sessionId,
-      itemId: crypto.randomUUID(),
-      content,
-      x: 160,
-      y: 230,
-      color: '#ffffff',
-    });
-    setTextInput('');
-  };
-
-  const selectItem = (itemId: string | null) => send({ type: 'editor-select-item', sessionId, itemId });
   const deleteSelected = () => {
-    if (selectedItemId) send({ type: 'editor-delete-item', sessionId, itemId: selectedItemId });
+    if (selectedItem) send({ type: 'editor-delete-item', sessionId, itemId: selectedItem.id });
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)' }}>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.15em', textTransform: 'uppercase', padding: '10px 16px 4px' }}>
-        Screen 1 · Canvas
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.15em', textTransform: 'uppercase', padding: '14px 16px 8px', display: 'flex', justifyContent: 'space-between' }}>
+        <span>Screen 1 · Emoji controller</span>
+        <span style={{ color: connected && isSynchronized ? 'var(--accent-good)' : 'var(--accent-warm)' }}>
+          {connected ? (isSynchronized ? '● synced' : '◌ syncing') : '○ offline'}
+        </span>
       </div>
 
-      {/* Konva stage */}
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: '0 0 auto' }}>
-        <Stage width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT}>
-          <Layer>
-            {bgImage
-              ? <KonvaImage image={bgImage} width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} onClick={() => selectItem(null)} onTap={() => selectItem(null)} />
-              : <Rect width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} fill="#1a1a2e" onClick={() => selectItem(null)} onTap={() => selectItem(null)} />
-            }
-          </Layer>
-          <Layer>
-            {items.map((item) => item.type === 'sticker' ? (
-              <KonvaText key={item.id} text={item.emoji} x={item.x} y={item.y} rotation={item.rotation} scaleX={item.scale} scaleY={item.scale} fontSize={40} onClick={() => selectItem(item.id)} onTap={() => selectItem(item.id)} />
-            ) : (
-              <KonvaText key={item.id} text={item.content} x={item.x} y={item.y} rotation={item.rotation} scaleX={item.scale} scaleY={item.scale} fontSize={22} fill={item.color} fontStyle="bold" onClick={() => selectItem(item.id)} onTap={() => selectItem(item.id)} />
-            ))}
-          </Layer>
-        </Stage>
+      <div style={{ padding: '16px 20px 4px' }}>
+        <Tag color="var(--accent-purple)">Decorate your photo</Tag>
+        <Title style={{ marginTop: 8 }}>pick an emoji</Title>
+        <div style={{ marginTop: 10, color: 'var(--text-dim)', fontSize: 12, lineHeight: 1.5 }}>
+          Tap an emoji here, then move it on screen 2.
+        </div>
       </div>
 
-      {/* Sticker picker */}
-      {activeTool === 'stickers' && (
-        <div style={{ display: 'flex', gap: 6, padding: '8px 16px', overflowX: 'auto' }}>
-          {STICKER_OPTIONS.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => addSticker(emoji)}
-              style={{ fontSize: 26, background: 'var(--surface-2)', border: '1px solid var(--line)', padding: '4px 8px', cursor: 'pointer', flexShrink: 0 }}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Text input */}
-      {activeTool === 'text' && (
-        <div style={{ display: 'flex', gap: 8, padding: '8px 16px' }}>
-          <input
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') addText(); }}
-            placeholder="type something..."
-            style={{ flex: 1, padding: '10px 12px', background: 'var(--surface-2)', border: '1px solid var(--line)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 13, outline: 'none' }}
-          />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, padding: '18px 20px' }}>
+        {STICKER_OPTIONS.map((emoji) => (
           <button
-            onClick={addText}
-            style={{ padding: '10px 16px', background: 'var(--accent)', color: '#000', border: 'none', fontFamily: 'var(--display)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            key={emoji}
+            onClick={() => addSticker(emoji)}
+            disabled={!connected || !isSynchronized}
+            style={{ aspectRatio: '1', fontSize: 34, background: 'var(--surface-2)', border: '1px solid var(--line-bright)', cursor: connected && isSynchronized ? 'pointer' : 'not-allowed', opacity: connected && isSynchronized ? 1 : 0.45 }}
           >
-            Add
-          </button>
-        </div>
-      )}
-
-      {/* Tool bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, padding: '0 16px 8px', marginTop: 'auto' }}>
-        {(['stickers', 'text'] as const).map((tool) => (
-          <button
-            key={tool}
-            onClick={() => setActiveTool(tool)}
-            style={{ padding: 10, fontFamily: 'var(--mono)', fontSize: 9, textTransform: 'uppercase', background: activeTool === tool ? 'var(--accent)' : 'var(--surface-2)', color: activeTool === tool ? '#000' : 'var(--text)', border: `1px solid ${activeTool === tool ? 'var(--accent)' : 'var(--line)'}`, cursor: 'pointer' }}
-          >
-            {tool}
-          </button>
-        ))}
-        {(['filters', 'draw'] as const).map((tool) => (
-          <button
-            key={tool}
-            disabled
-            style={{ padding: 10, fontFamily: 'var(--mono)', fontSize: 9, textTransform: 'uppercase', background: 'var(--surface-2)', color: 'var(--text-dimmer)', border: '1px solid var(--line)', opacity: 0.35, cursor: 'not-allowed' }}
-          >
-            {tool}
+            {emoji}
           </button>
         ))}
       </div>
 
-      <div style={{ padding: '0 16px 16px' }}>
+      <div style={{ margin: 'auto 20px 14px', padding: 14, border: `1px solid ${selectedItem ? 'var(--accent)' : 'var(--line)'}`, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Selected emoji</div>
+          <div style={{ marginTop: 5, fontSize: 13, color: selectedItem ? 'var(--text)' : 'var(--text-dim)' }}>
+            {selectedItem ? 'Ready to move or delete' : 'Tap an emoji on screen 2'}
+          </div>
+        </div>
+        <div style={{ fontSize: 34, minWidth: 42, textAlign: 'center' }}>{selectedItem?.emoji ?? '—'}</div>
+      </div>
+
+      <div style={{ padding: '0 20px 20px' }}>
         <button
           onClick={deleteSelected}
-          disabled={!selectedItemId}
-          style={{ width: '100%', padding: 10, marginBottom: 8, background: 'var(--surface-2)', color: selectedItemId ? 'var(--accent-warm)' : 'var(--text-dimmer)', border: '1px solid var(--line)', fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase', cursor: selectedItemId ? 'pointer' : 'not-allowed', opacity: selectedItemId ? 1 : 0.5 }}
+          disabled={!selectedItem || !connected}
+          style={{ width: '100%', padding: 12, marginBottom: 8, background: 'var(--surface-2)', color: selectedItem ? 'var(--accent-warm)' : 'var(--text-dimmer)', border: '1px solid var(--line)', fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase', cursor: selectedItem && connected ? 'pointer' : 'not-allowed', opacity: selectedItem && connected ? 1 : 0.5 }}
         >
           Delete selected
         </button>

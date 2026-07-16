@@ -24,14 +24,12 @@ const stickerCommand: EditorCommand = {
   y: 230,
 };
 
-const textCommand: EditorCommand = {
-  type: 'editor-add-text',
+const moveCommand: EditorCommand = {
+  type: 'editor-move-item',
   sessionId: SESSION_ID,
-  itemId: 'text-1',
-  content: 'hello',
-  x: 160,
-  y: 230,
-  color: '#ffffff',
+  itemId: 'sticker-1',
+  x: 120,
+  y: 140,
 };
 
 function createEditor(): EditorState {
@@ -71,16 +69,6 @@ describe('EditorState', () => {
       type: 'sticker', id: 'sticker-1', emoji: '⭐', x: 180, y: 230, rotation: 0, scale: 1,
     });
     assert.equal(snapshot.selectedItemId, 'sticker-1');
-  });
-
-  test('adds trimmed text and automatically selects it', () => {
-    const editor = createEditor();
-    const snapshot = acceptedSnapshot(editor, { ...textCommand, content: '  hello  ' });
-    assert.deepEqual(snapshot.document.items[0], {
-      type: 'text', id: 'text-1', content: 'hello', x: 160, y: 230,
-      rotation: 0, scale: 1, color: '#ffffff',
-    });
-    assert.equal(snapshot.selectedItemId, 'text-1');
   });
 
   test('selects and deselects an existing item', () => {
@@ -141,7 +129,7 @@ describe('EditorState', () => {
   test('rejects a duplicate item id without incrementing the revision', () => {
     const editor = createEditor();
     acceptedSnapshot(editor, stickerCommand);
-    const result = editor.apply({ ...textCommand, itemId: stickerCommand.itemId }, validContext);
+    const result = editor.apply({ ...stickerCommand, emoji: '✨' }, validContext);
     assert.equal(result.accepted, false);
     assert.match(result.reason, /duplicate/);
     assert.equal(editor.getSnapshot()?.revision, 1);
@@ -159,21 +147,11 @@ describe('EditorState', () => {
     assert.match(result.reason, /not authorized/);
   });
 
-  test('accepts an editor command from the secondary surface', () => {
-    const result = createEditor().apply(stickerCommand, {
-      ...validContext,
-      surface: 'int-secondary',
-    });
-    assert.equal(result.accepted, true);
-  });
-
-  test('rejects invalid numeric and text values', () => {
+  test('rejects invalid sticker values', () => {
     const editor = createEditor();
     const invalidCommands: EditorCommand[] = [
       { ...stickerCommand, x: Number.NaN },
       { ...stickerCommand, emoji: '' },
-      { ...textCommand, content: '   ' },
-      { ...textCommand, color: 'white' },
     ];
     for (const command of invalidCommands) {
       assert.equal(editor.apply(command, validContext).accepted, false);
@@ -184,10 +162,81 @@ describe('EditorState', () => {
   test('increments the revision after every accepted mutation', () => {
     const editor = createEditor();
     assert.equal(acceptedSnapshot(editor, stickerCommand).revision, 1);
-    assert.equal(acceptedSnapshot(editor, textCommand).revision, 2);
     assert.equal(acceptedSnapshot(editor, {
       type: 'editor-select-item', sessionId: SESSION_ID, itemId: null,
-    }).revision, 3);
+    }).revision, 2);
+  });
+
+  test('moves an existing sticker and increments the revision', () => {
+    const editor = createEditor();
+    acceptedSnapshot(editor, stickerCommand);
+    const snapshot = acceptedSnapshot(editor, moveCommand, {
+      ...validContext,
+      surface: 'int-secondary',
+    });
+    assert.equal(snapshot.revision, 2);
+    assert.deepEqual(
+      { x: snapshot.document.items[0]?.x, y: snapshot.document.items[0]?.y },
+      { x: 120, y: 140 },
+    );
+  });
+
+  test('rejects a move for the wrong session', () => {
+    const editor = createEditor();
+    acceptedSnapshot(editor, stickerCommand);
+    const result = editor.apply({ ...moveCommand, sessionId: OTHER_SESSION_ID }, {
+      ...validContext,
+      surface: 'int-secondary',
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.reason, /session/);
+  });
+
+  test('rejects a move in the wrong phase', () => {
+    const editor = createEditor();
+    acceptedSnapshot(editor, stickerCommand);
+    const result = editor.apply(moveCommand, {
+      ...validContext,
+      phase: 'photo-review',
+      surface: 'int-secondary',
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.reason, /manipulate/);
+  });
+
+  test('rejects a move for a missing item', () => {
+    const editor = createEditor();
+    const result = editor.apply(moveCommand, { ...validContext, surface: 'int-secondary' });
+    assert.equal(result.accepted, false);
+    assert.match(result.reason, /does not exist/);
+  });
+
+  test('rejects a move with non-finite or out-of-bounds coordinates', () => {
+    const editor = createEditor();
+    acceptedSnapshot(editor, stickerCommand);
+    for (const command of [
+      { ...moveCommand, x: Number.NaN },
+      { ...moveCommand, y: Number.POSITIVE_INFINITY },
+      { ...moveCommand, x: -1 },
+      { ...moveCommand, x: 361 },
+      { ...moveCommand, y: 461 },
+    ] as EditorCommand[]) {
+      const result = editor.apply(command, { ...validContext, surface: 'int-secondary' });
+      assert.equal(result.accepted, false);
+      assert.match(result.reason, /coordinates/);
+    }
+    assert.equal(editor.getSnapshot()?.revision, 1);
+  });
+
+  test('rejects primary move commands and accepts secondary move commands', () => {
+    const editor = createEditor();
+    acceptedSnapshot(editor, stickerCommand);
+    const primaryResult = editor.apply(moveCommand, validContext);
+    assert.equal(primaryResult.accepted, false);
+    assert.match(primaryResult.reason, /int-secondary/);
+
+    const secondaryResult = editor.apply(moveCommand, { ...validContext, surface: 'int-secondary' });
+    assert.equal(secondaryResult.accepted, true);
   });
 
   test('resets the document, selection, and revision for a new session', () => {
@@ -202,10 +251,29 @@ describe('EditorState', () => {
     });
   });
 
-  test('sends matching lifecycle state then editor snapshot to a newly attached internal client', () => {
-    const coordinator = new Coordinator(new MockAdapter());
+  test('a newly attached client recovers the moved canonical position', () => {
+    const editor = new EditorState();
+    const coordinator = new Coordinator(new MockAdapter(), false, editor);
     coordinator.start();
     coordinator.handleCommand('ext-touch', { type: 'register', name: 'Test User' });
+    const initialMessages: WSMessageOutbound[] = [];
+    coordinator.attachClient('int-primary', fakeSocket(initialMessages));
+    const lifecycleMessage = initialMessages.find((message) => message.event.type === 'state-update');
+    assert.ok(lifecycleMessage);
+    assert.equal(lifecycleMessage.event.type, 'state-update');
+    const activeSessionId = lifecycleMessage.event.state.activeSession?.id;
+    assert.ok(activeSessionId);
+    acceptedSnapshot(editor, { ...stickerCommand, sessionId: activeSessionId }, {
+      activeSessionId,
+      phase: 'manipulate',
+      surface: 'int-primary',
+    });
+    acceptedSnapshot(editor, { ...moveCommand, sessionId: activeSessionId }, {
+      activeSessionId,
+      phase: 'manipulate',
+      surface: 'int-secondary',
+    });
+
     const sent: WSMessageOutbound[] = [];
     coordinator.attachClient('int-secondary', fakeSocket(sent));
 
@@ -215,10 +283,12 @@ describe('EditorState', () => {
       if (sent[0]?.event.type !== 'state-update' || sent[1]?.event.type !== 'editor-snapshot') {
         assert.fail('expected lifecycle state followed by editor snapshot');
       }
-      const activeSessionId = sent[0].event.state.activeSession?.id;
-      assert.ok(activeSessionId);
       assert.equal(sent[1].event.snapshot.sessionId, activeSessionId);
-      assert.equal(sent[1].event.snapshot.revision, 0);
+      assert.equal(sent[1].event.snapshot.revision, 2);
+      assert.deepEqual(
+        { x: sent[1].event.snapshot.document.items[0]?.x, y: sent[1].event.snapshot.document.items[0]?.y },
+        { x: 120, y: 140 },
+      );
     } finally {
       coordinator.stop();
     }

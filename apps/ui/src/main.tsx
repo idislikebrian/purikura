@@ -28,8 +28,8 @@ function Index() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <Link to="/ext-touch" style={linkStyle}>/ext-touch · External touchscreen (registration)</Link>
         <Link to="/ext-tv" style={linkStyle}>/ext-tv · External TV (queue + attract)</Link>
-        <Link to="/int-primary" style={linkStyle}>/int-primary · Internal primary (camera + canvas)</Link>
-        <Link to="/int-secondary" style={linkStyle}>/int-secondary · Internal secondary (keyboard / mirror)</Link>
+        <Link to="/int-primary" style={linkStyle}>/int-primary · Internal primary (camera + emoji controller)</Link>
+        <Link to="/int-secondary" style={linkStyle}>/int-secondary · Internal secondary (interactive canvas)</Link>
         <Link to="/takeaway" style={linkStyle}>/takeaway · Takeaway display (recent + print queue)</Link>
       </div>
       <p style={{ marginTop: 32, fontSize: 12, color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>

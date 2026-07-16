@@ -1,6 +1,7 @@
 import {
   EDITOR_CANVAS_HEIGHT,
   EDITOR_CANVAS_WIDTH,
+  EDITOR_STICKER_SIZE,
   type Command,
   type EditorDocument,
   type EditorSnapshot,
@@ -23,8 +24,6 @@ export type EditorCommandResult =
 const AUTHORIZED_SURFACES = new Set<Surface>(['int-primary', 'int-secondary']);
 const MAX_ITEM_ID_LENGTH = 128;
 const MAX_STICKER_LENGTH = 32;
-const MAX_TEXT_LENGTH = 200;
-const MAX_COORDINATE_MAGNITUDE = 10_000;
 
 export function createEmptyEditorDocument(): EditorDocument {
   return {
@@ -38,12 +37,10 @@ function validId(value: string): boolean {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_ITEM_ID_LENGTH;
 }
 
-function validCoordinate(value: number): boolean {
-  return Number.isFinite(value) && Math.abs(value) <= MAX_COORDINATE_MAGNITUDE;
-}
-
-function validColor(value: unknown): value is string {
-  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+function validStickerPosition(x: number, y: number): boolean {
+  return Number.isFinite(x) && Number.isFinite(y)
+    && x >= 0 && x <= EDITOR_CANVAS_WIDTH - EDITOR_STICKER_SIZE
+    && y >= 0 && y <= EDITOR_CANVAS_HEIGHT - EDITOR_STICKER_SIZE;
 }
 
 function assertNever(command: never): never {
@@ -94,13 +91,16 @@ export class EditorState {
 
     switch (command.type) {
       case 'editor-add-sticker': {
+        if (context.surface !== 'int-primary') {
+          return { accepted: false, reason: 'only int-primary may add stickers' };
+        }
         if (!validId(command.itemId) || items.some((item) => item.id === command.itemId)) {
           return { accepted: false, reason: 'invalid or duplicate item id' };
         }
         if (typeof command.emoji !== 'string' || command.emoji.trim().length === 0 || command.emoji.length > MAX_STICKER_LENGTH) {
           return { accepted: false, reason: 'invalid sticker text' };
         }
-        if (!validCoordinate(command.x) || !validCoordinate(command.y)) {
+        if (!validStickerPosition(command.x, command.y)) {
           return { accepted: false, reason: 'invalid sticker coordinates' };
         }
         items.push({
@@ -111,31 +111,6 @@ export class EditorState {
           y: command.y,
           rotation: 0,
           scale: 1,
-        });
-        next.selectedItemId = command.itemId;
-        break;
-      }
-
-      case 'editor-add-text': {
-        if (!validId(command.itemId) || items.some((item) => item.id === command.itemId)) {
-          return { accepted: false, reason: 'invalid or duplicate item id' };
-        }
-        const content = typeof command.content === 'string' ? command.content.trim() : '';
-        if (content.length === 0 || content.length > MAX_TEXT_LENGTH) {
-          return { accepted: false, reason: 'invalid text content' };
-        }
-        if (!validCoordinate(command.x) || !validCoordinate(command.y) || !validColor(command.color)) {
-          return { accepted: false, reason: 'invalid text values' };
-        }
-        items.push({
-          type: 'text',
-          id: command.itemId,
-          content,
-          x: command.x,
-          y: command.y,
-          rotation: 0,
-          scale: 1,
-          color: command.color,
         });
         next.selectedItemId = command.itemId;
         break;
@@ -155,6 +130,22 @@ export class EditorState {
         }
         items.splice(index, 1);
         if (next.selectedItemId === command.itemId) next.selectedItemId = null;
+        break;
+      }
+
+      case 'editor-move-item': {
+        if (context.surface !== 'int-secondary') {
+          return { accepted: false, reason: 'only int-secondary may move stickers' };
+        }
+        const item = items.find((candidate) => candidate.id === command.itemId);
+        if (!item) {
+          return { accepted: false, reason: 'target item does not exist' };
+        }
+        if (!validStickerPosition(command.x, command.y)) {
+          return { accepted: false, reason: 'invalid move coordinates' };
+        }
+        item.x = command.x;
+        item.y = command.y;
         break;
       }
 

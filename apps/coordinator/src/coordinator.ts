@@ -211,9 +211,9 @@ export class Coordinator {
         break;
 
       case 'editor-add-sticker':
-      case 'editor-add-text':
       case 'editor-select-item':
-      case 'editor-delete-item': {
+      case 'editor-delete-item':
+      case 'editor-move-item': {
         const snapshot = this.actor.getSnapshot();
         const result = this.editor.apply(command, {
           activeSessionId: snapshot.context.activeSession?.id ?? null,

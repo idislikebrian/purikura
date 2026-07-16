@@ -12,8 +12,8 @@
 export type Surface =
   | 'ext-touch'      // External touchscreen (registration)
   | 'ext-tv'         // External TV (queue + attract)
-  | 'int-primary'    // Internal touch 1 (camera + canvas)
-  | 'int-secondary'  // Internal touch 2 (keyboard / mirror)
+  | 'int-primary'    // Internal touch 1 (camera + emoji controller)
+  | 'int-secondary'  // Internal touch 2 (interactive editing canvas)
   | 'takeaway';      // Takeaway display (recent users + print queue)
 
 // ============================================================================
@@ -85,6 +85,7 @@ export interface SystemState {
 
 export const EDITOR_CANVAS_WIDTH = 400;
 export const EDITOR_CANVAS_HEIGHT = 500;
+export const EDITOR_STICKER_SIZE = 40;
 
 export interface StickerItem {
   type: 'sticker';
@@ -96,23 +97,10 @@ export interface StickerItem {
   scale: number;
 }
 
-export interface TextItem {
-  type: 'text';
-  id: string;
-  content: string;
-  x: number;
-  y: number;
-  rotation: number;
-  scale: number;
-  color: string;
-}
-
-export type EditorItem = StickerItem | TextItem;
-
 export interface EditorDocument {
   width: typeof EDITOR_CANVAS_WIDTH;
   height: typeof EDITOR_CANVAS_HEIGHT;
-  items: EditorItem[]; // array order is the canonical z-order
+  items: StickerItem[]; // array order is the canonical z-order
 }
 
 export interface EditorSnapshot {
@@ -134,17 +122,14 @@ export type Command =
   | { type: 'capture-photo' }              // int-primary: shutter
   | { type: 'photo-accept' }
   | { type: 'photo-redo' }
-  | { type: 'manip-tool-change'; tool: ManipTool }
   | { type: 'editor-add-sticker'; sessionId: string; itemId: string; emoji: string; x: number; y: number }
-  | { type: 'editor-add-text'; sessionId: string; itemId: string; content: string; x: number; y: number; color: string }
   | { type: 'editor-select-item'; sessionId: string; itemId: string | null }
   | { type: 'editor-delete-item'; sessionId: string; itemId: string }
+  | { type: 'editor-move-item'; sessionId: string; itemId: string; x: number; y: number }
   | { type: 'manip-done' }
   | { type: 'exit-booth' }                 // int: user is leaving
   | { type: 'admin-suspend' }
   | { type: 'admin-resume' };
-
-export type ManipTool = 'stickers' | 'filters' | 'text' | 'draw';
 
 // ============================================================================
 // Events — what the coordinator BROADCASTS to all UIs
