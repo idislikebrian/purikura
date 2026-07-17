@@ -8,7 +8,6 @@
  * URL: ws://localhost:3001/ws
  */
 
-import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { WebSocketServer } from 'ws';
@@ -16,8 +15,10 @@ import { createServer } from 'node:http';
 
 import { MockAdapter } from '@purikura/hardware-adapter';
 import { Coordinator } from './coordinator.js';
+import { logLanStartupUrls } from './network.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
+const HOST = process.env.HOST ?? '0.0.0.0';
 const DEMO_MODE = process.env.DEMO_MODE !== 'false';
 
 // ---- HTTP server (for health checks, photo upload, anything REST) ----
@@ -99,8 +100,8 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`[coord] listening on http://localhost:${PORT}`);
-  console.log(`[coord] ws://localhost:${PORT}/ws?surface=<surface>`);
+httpServer.listen(PORT, HOST, () => {
+  logLanStartupUrls(HOST, PORT);
+  console.log(`[coord] WebSocket path: ws://<host>:${PORT}/ws?surface=<surface>`);
   coordinator.start();
 });

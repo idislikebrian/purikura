@@ -8,7 +8,14 @@
 
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
-import { reconcileEditorSnapshot, reconcileSystemState } from './coordinator-store.ts';
+import {
+  reconcileEditorSnapshot,
+  reconcileSystemState,
+  transitionConnectionStatus,
+  type ConnectionEvent,
+  type ConnectionStatus,
+} from './coordinator-store.ts';
+import { buildCoordinatorUrls } from './coordinator-url.ts';
 import type {
   Surface,
   SystemState,
@@ -20,10 +27,11 @@ import type {
 
 interface StoreState {
   connected: boolean;
+  connectionStatus: ConnectionStatus;
   state: SystemState | null;
   editorSnapshot: EditorSnapshot | null;
   countdownRemaining: number | null;
-  setConnected: (v: boolean) => void;
+  handleConnectionEvent: (event: ConnectionEvent) => void;
   setState: (s: SystemState) => void;
   setEditorSnapshot: (s: EditorSnapshot) => void;
   setCountdown: (n: number | null) => void;
@@ -31,10 +39,14 @@ interface StoreState {
 
 export const useStore = create<StoreState>((set) => ({
   connected: false,
+  connectionStatus: 'connecting',
   state: null,
   editorSnapshot: null,
   countdownRemaining: null,
-  setConnected: (v) => set({ connected: v }),
+  handleConnectionEvent: (event) => set((current) => {
+    const connectionStatus = transitionConnectionStatus(current.connectionStatus, event);
+    return { connectionStatus, connected: connectionStatus === 'connected' };
+  }),
   setState: (s) => set((current) => reconcileSystemState(current, s)),
   setEditorSnapshot: (snapshot) => set((current) => ({
     editorSnapshot: reconcileEditorSnapshot(current, snapshot),
@@ -45,11 +57,12 @@ export const useStore = create<StoreState>((set) => ({
 // VITE_COORDINATOR_URL overrides the default localhost:3001.
 // Set it to your deployed coordinator (e.g. https://purikura-coordinator.fly.dev)
 // when running the UI on Vercel. https:// is automatically converted to wss://.
-const _base: string =
-  (import.meta.env.VITE_COORDINATOR_URL as string | undefined) ??
-  `http://${window.location.hostname}:3001`;
-export const COORDINATOR_HTTP_URL = _base;
-const WS_URL = `${_base.replace(/^http/, 'ws')}/ws`;
+const coordinatorUrls = buildCoordinatorUrls(
+  window.location.hostname,
+  import.meta.env.VITE_COORDINATOR_URL as string | undefined,
+);
+export const COORDINATOR_HTTP_URL = coordinatorUrls.http;
+const WS_URL = coordinatorUrls.websocket;
 
 type Sender = (cmd: Command) => void;
 
@@ -61,11 +74,14 @@ export function useCoordinator(surface: Surface): { send: Sender } {
     let reconnectTimer: number | undefined;
 
     function connect() {
+      if (useStore.getState().connectionStatus === 'reconnecting') {
+        useStore.getState().handleConnectionEvent('reconnect-started');
+      }
       const ws = new WebSocket(`${WS_URL}?surface=${surface}`);
       wsRef.current = ws;
 
       ws.addEventListener('open', () => {
-        useStore.getState().setConnected(true);
+        useStore.getState().handleConnectionEvent('socket-opened');
       });
 
       ws.addEventListener('message', (e) => {
@@ -89,8 +105,8 @@ export function useCoordinator(surface: Surface): { send: Sender } {
       });
 
       ws.addEventListener('close', () => {
-        useStore.getState().setConnected(false);
         if (cancelled) return;
+        useStore.getState().handleConnectionEvent('socket-closed');
         reconnectTimer = window.setTimeout(connect, 1500);
       });
 

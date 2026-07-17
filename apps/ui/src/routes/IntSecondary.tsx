@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText } from 'react-konva';
 import { useCoordinator, useStore } from '../lib/coordinator-client.ts';
+import { createEditorMoveCommand, isEditorInteractive } from '../lib/editor-interaction.ts';
 import { ScreenShell } from '../components/ScreenShell.tsx';
 import {
   EDITOR_CANVAS_HEIGHT,
@@ -23,7 +24,7 @@ const clampPosition = (x: number, y: number) => ({
 
 export function IntSecondary() {
   const { send } = useCoordinator('int-secondary');
-  const connected = useStore((s) => s.connected);
+  const connectionStatus = useStore((s) => s.connectionStatus);
   const state = useStore((s) => s.state);
   const editorSnapshot = useStore((s) => s.editorSnapshot);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
@@ -36,6 +37,14 @@ export function IntSecondary() {
     : null;
   const items = synchronizedSnapshot?.document.items ?? [];
   const selectedItemId = synchronizedSnapshot?.selectedItemId ?? null;
+  const interactive = isEditorInteractive(connectionStatus, sessionId, editorSnapshot);
+  const networkLabel = connectionStatus === 'connecting'
+    ? '◌ connecting'
+    : connectionStatus === 'reconnecting'
+      ? '○ disconnected · reconnecting'
+      : synchronizedSnapshot
+        ? '● connected · synced'
+        : '◌ connected · syncing';
 
   useEffect(() => {
     if (!photoBlob) { setBgImage(null); return; }
@@ -47,7 +56,7 @@ export function IntSecondary() {
   useEffect(() => {
     setLocalDrag((current) => {
       if (!current) return null;
-      if (!connected || !synchronizedSnapshot) return null;
+      if (!interactive || !synchronizedSnapshot) return null;
       const canonicalItem = synchronizedSnapshot.document.items.find((item) => item.id === current.itemId);
       if (!canonicalItem) return null;
       if (
@@ -57,20 +66,20 @@ export function IntSecondary() {
       ) return null;
       return current;
     });
-  }, [connected, synchronizedSnapshot]);
+  }, [interactive, synchronizedSnapshot]);
 
   if (!state || !state.activeSession || state.phase !== 'manipulate') {
     return (
       <ScreenShell>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-dimmer)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-          screen 2 · standby
+          screen 2 · standby · {networkLabel}
         </div>
       </ScreenShell>
     );
   }
 
   const selectItem = (itemId: string | null) => {
-    if (connected && synchronizedSnapshot) {
+    if (interactive && synchronizedSnapshot) {
       send({ type: 'editor-select-item', sessionId: state.activeSession!.id, itemId });
     }
   };
@@ -80,12 +89,13 @@ export function IntSecondary() {
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--surface)' }}>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.15em', textTransform: 'uppercase', padding: '10px 16px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Screen 2 · Touch canvas</span>
-          <span style={{ color: connected && synchronizedSnapshot ? 'var(--accent-good)' : 'var(--accent-warm)' }}>
-            {connected ? (synchronizedSnapshot ? '● synced' : '◌ syncing') : '○ offline'}
+          <span style={{ color: interactive ? 'var(--accent-good)' : 'var(--accent-warm)' }}>
+            {networkLabel}
           </span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, touchAction: 'none', overflow: 'hidden' }}>
-          <Stage width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT}>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, touchAction: 'none', overflow: 'hidden', position: 'relative' }}>
+          <div style={{ opacity: interactive ? 1 : 0.55, touchAction: 'none' }}>
+            <Stage width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT}>
             <Layer>
               {bgImage
                 ? <KonvaImage image={bgImage} width={EDITOR_CANVAS_WIDTH} height={EDITOR_CANVAS_HEIGHT} onClick={() => selectItem(null)} onTap={() => selectItem(null)} />
@@ -106,7 +116,7 @@ export function IntSecondary() {
                     scaleX={item.scale}
                     scaleY={item.scale}
                     fontSize={EDITOR_STICKER_SIZE}
-                    draggable={connected && Boolean(synchronizedSnapshot)}
+                    draggable={interactive}
                     dragBoundFunc={(position) => clampPosition(position.x, position.y)}
                     shadowColor={selected ? '#ff3b6b' : undefined}
                     shadowBlur={selected ? 12 : 0}
@@ -126,18 +136,19 @@ export function IntSecondary() {
                       const position = clampPosition(event.target.x(), event.target.y());
                       event.target.position(position);
                       setLocalDrag({ itemId: item.id, ...position, awaitingSnapshot: true });
-                      send({
-                        type: 'editor-move-item',
-                        sessionId: state.activeSession!.id,
-                        itemId: item.id,
-                        ...position,
-                      });
+                      send(createEditorMoveCommand(state.activeSession!.id, item.id, position.x, position.y));
                     }}
                   />
                 );
               })}
             </Layer>
-          </Stage>
+            </Stage>
+          </div>
+          {!interactive && (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.28)', color: 'var(--accent-warm)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center', padding: 24, touchAction: 'none' }}>
+              {networkLabel}
+            </div>
+          )}
         </div>
       </div>
     </ScreenShell>

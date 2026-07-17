@@ -46,6 +46,48 @@ The debug panel (bottom-right of every screen) lets you fire fake hardware event
 5. Open `/int-primary` in another tab — the welcome screen appears with the registered name
 6. Click through the experience
 
+## Windows + Android tablet LAN testing
+
+The Windows PC continues to own the camera and photo-capture flow. The Android
+tablet is used only for the `int-secondary` editing screen.
+
+1. On the Windows PC, start the app:
+
+   ```powershell
+   pnpm.cmd dev
+   ```
+
+2. Run `ipconfig` and find the active Wi-Fi adapter's IPv4 address.
+
+3. On the tablet, open:
+
+   ```text
+   http://<PC-IP>:3000/int-secondary
+   ```
+
+   The UI uses the hostname from the page URL when connecting to the
+   coordinator, so this page connects to `ws://<PC-IP>:3001/ws`.
+
+4. If Windows Firewall prompts for Node.js access, allow it on private
+   networks.
+
+Before testing, confirm that:
+
+- Both devices are connected to the same Wi-Fi network.
+- The Windows network is marked Private.
+- Wi-Fi client isolation or AP isolation is disabled.
+- VPNs are disabled on both devices during testing.
+- The tablet is configured to stay awake.
+- The PC's IPv4 address can change unless the router has a DHCP reservation.
+
+If the tablet cannot connect:
+
+- Open `http://<PC-IP>:3001/health` on the tablet.
+- Confirm that ports `3000` and `3001` are reachable through Windows Firewall.
+- Confirm that the coordinator logs show the tablet WebSocket connection.
+- Remember that camera capture remains on the Windows PC; the tablet does not
+  access the camera.
+
 ## Architecture
 
 ```
